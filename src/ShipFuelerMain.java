@@ -2,6 +2,8 @@ import Utilities.*;
 
 import javax.swing.*;
 import java.awt.*;
+import java.awt.event.ActionEvent;
+import java.awt.event.ActionListener;
 import java.io.ObjectInputStream;
 import java.io.ObjectOutputStream;
 import java.net.Socket;
@@ -18,15 +20,44 @@ public class ShipFuelerMain
 
     JProgressBar temperatureBar;
     JLabel energyLabel;
+    JLabel batteriesChargedLabel;
 
     Thread connectionToServer;
 
+    volatile Socket soc;
+    ServerToFuelerData inData;
+
     public static void main(String[] args)
     {
-        ShipFuelerMain fuelManager = new ShipFuelerMain();
+        ShipFuelerMain fuelManager = new ShipFuelerMain(args[0], Integer.parseInt(args[1]));
     }
 
-    ShipFuelerMain()
+    public void SendAction(FuelerAction action)
+    {
+        try
+        {
+            ObjectOutputStream outputStream = new ObjectOutputStream(soc.getOutputStream());
+            FuelerToServerData data = new FuelerToServerData();
+            data.action = action;
+            outputStream.writeObject(data);
+            outputStream.flush();
+        }
+        catch (Exception e)
+        {
+            e.printStackTrace();
+        }
+    }
+
+    public void setTextOnHeater(boolean isOn)
+    {
+        StringBuilder heaterText = new StringBuilder("Heating: ");
+        if (isOn) heaterText.append("On");
+        else heaterText.append("Off");
+        switchHeatingBtn.setText(heaterText.toString());
+    }
+
+
+    ShipFuelerMain(String ipAddress, int port)
     {
         window = new JFrame("Fuel Manager");
         window.setSize(600, 630);
@@ -71,19 +102,25 @@ public class ShipFuelerMain
         energyLabel.setText("Good");
         energyLabel.setBounds(455, 210, 70, 30);
 
+        batteriesChargedLabel = new JLabel();
+        batteriesChargedLabel.setText("No info.");
+        batteriesChargedLabel.setBounds(370, 460, 150, 40);
+
         panel.add(addFuelBtn);
         panel.add(chargeBatteryBtn);
         panel.add(chargeShipBtn);
         panel.add(energyLabel);
         panel.add(switchHeatingBtn);
         panel.add(temperatureBar);
+        panel.add(batteriesChargedLabel);
+
 
         connectionToServer = new Thread(() ->
         {
             try
             {
                 // Checking whether you're a driver or fueler.
-                Socket soc = new Socket("127.0.0.1", 10009);
+                soc = new Socket(ipAddress, port);
                 System.out.println("Connected to server.");
                 ObjectOutputStream outputStream = new ObjectOutputStream(soc.getOutputStream());
                 outputStream.writeBoolean(false);
@@ -94,20 +131,34 @@ public class ShipFuelerMain
                 ObjectInputStream inputStream = new ObjectInputStream(soc.getInputStream());
                 while (!soc.isClosed())
                 {
-                    ServerToFuelerData inData = (ServerToFuelerData) inputStream.readObject();
-                    chargeBatteryBtn.setEnabled(inData.canChargeBattery);
-                    chargeShipBtn.setEnabled(inData.canChargeShip);
+                    inData = (ServerToFuelerData) inputStream.readObject();
+                    chargeBatteryBtn.setEnabled(inData.chargeBatteryCooldown <= 0 && inData.batteriesCharged < 10);
+                    chargeShipBtn.setEnabled(inData.chargeShipCooldown <= 0 && inData.batteriesCharged > 0);
+
+                    if (inData.chargeBatteryCooldown > 0.0f && inData.batteriesCharged < 10)
+                        chargeBatteryBtn.setText("Cooldown: " + String.format("%.1f", inData.chargeBatteryCooldown) + "s");
+                    else if (inData.batteriesCharged == 10)
+                        chargeBatteryBtn.setText("All charged");
+                    else if (!inData.isEnoughToCharge)
+                        chargeBatteryBtn.setText("No energy");
+                    else
+                        chargeBatteryBtn.setText("Charge battery");
+
+                    if (inData.chargeShipCooldown > 0.0f)
+                        chargeShipBtn.setText("Cooldown: " + String.format("%.1f", inData.chargeShipCooldown) + "s");
+                    else if (inData.batteriesCharged == 0)
+                        chargeShipBtn.setText("No batteries");
+                    else
+                        chargeShipBtn.setText("Charge ship");
+
+                    batteriesChargedLabel.setText("Charged: " + inData.batteriesCharged);
+
+
                     temperatureBar.setValue((int) (inData.temperaturePercent * 100));
                     energyLabel.setText(inData.EnergyLabel);
 
-                    StringBuilder heaterText = new StringBuilder("Heating: ");
-                    if (inData.isHeaterOn) heaterText.append("On");
-                    else heaterText.append("Off");
-
-                    switchHeatingBtn.setText(heaterText.toString());
-
-
-
+                    setTextOnHeater(inData.isHeaterOn);
+                    temperatureBar.setForeground(new Color((int)(inData.temperaturePercent * 255), 0, 0));
                 }
                 System.out.println("Stopped connection.");
             } catch (Exception e)
@@ -117,6 +168,19 @@ public class ShipFuelerMain
             }
         });
         connectionToServer.start();
+
+
+        addFuelBtn.addActionListener(e -> SendAction(FuelerAction.addedFuel));
+        chargeBatteryBtn.addActionListener(e -> SendAction(FuelerAction.chargedBattery));
+        chargeShipBtn.addActionListener(e -> SendAction(FuelerAction.chargedShip));
+        switchHeatingBtn.addActionListener(e ->
+        {
+            SendAction(FuelerAction.switchedHeater);
+            setTextOnHeater(!inData.isHeaterOn);
+        });
+
+
+
         try
         {
             connectionToServer.join();
