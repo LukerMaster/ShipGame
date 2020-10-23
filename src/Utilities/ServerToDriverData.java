@@ -5,6 +5,7 @@ import java.util.ArrayList;
 
 public class ServerToDriverData implements Serializable
 {
+    public double gameTimePassed;
     public float energy;
     public float shipPos;
     public float temperatureShip;

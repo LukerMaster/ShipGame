@@ -3,11 +3,17 @@ import com.google.gson.Gson;
 
 import javax.swing.*;
 import java.awt.*;
+import java.awt.event.WindowAdapter;
+import java.awt.event.WindowEvent;
 import java.io.*;
+import java.net.ConnectException;
 import java.net.Socket;
+import java.net.SocketException;
 
 public class ShipDriverMain
 {
+    boolean applicationRuns = true;
+
     JFrame window;
     JPanelWithBG panel;
 
@@ -17,9 +23,11 @@ public class ShipDriverMain
     JProgressBar energyBar;
 
     JLabel temperatureLabel;
+    JLabel gameTimeLabel;
 
     JPanelWithBG[] meteorSprites;
 
+    volatile Socket soc;
     Thread connectionToServer;
 
     public static void main(String[] args)
@@ -31,7 +39,27 @@ public class ShipDriverMain
     {
         window = new JFrame("Ship Driver");
         window.setSize(600, 630);
-        panel = new JPanelWithBG("ship.png");
+        window.setDefaultCloseOperation(WindowConstants.DISPOSE_ON_CLOSE);
+        window.addWindowListener(new WindowAdapter()
+        {
+            @Override
+            public void windowClosing(WindowEvent we)
+            {
+                applicationRuns = false;
+                try
+                {
+                    if (soc != null)
+                        soc.close();
+                }
+                catch (Exception e)
+                {
+                    e.printStackTrace();
+                }
+
+                super.windowClosing(we);
+            }
+        });
+        panel = new JPanelWithBG("assets/ship.png");
         panel.setLayout(null);
         panel.setBounds(0, 0, 600, 600);
 
@@ -62,70 +90,100 @@ public class ShipDriverMain
 
         temperatureLabel = new JLabel();
         temperatureLabel.setText("No info.");
-        temperatureLabel.setBounds(10, 520, 200, 50);
-        temperatureLabel.setToolTipText("Temperature of the ship.");
+        temperatureLabel.setBounds(10, 520, 100, 30);
+        temperatureLabel.setToolTipText("Temperature of the ship. Don't go below -10 or above 50.");
+
+        gameTimeLabel = new JLabel();
+        gameTimeLabel.setText("Not connected.");
+        gameTimeLabel.setBounds(222, 505, 100, 30);
 
         panel.add(steerLeftBtn);
         panel.add(steerRightBtn);
         panel.add(turnOnFanBtn);
         panel.add(energyBar);
+        panel.add(gameTimeLabel);
         panel.add(temperatureLabel);
 
         meteorSprites = new JPanelWithBG[10];
         for (int i = 0; i < meteorSprites.length; i++)
         {
-            meteorSprites[i] = new JPanelWithBG("meteor.png");
+            meteorSprites[i] = new JPanelWithBG("assets/meteor.png");
             panel.add(meteorSprites[i]);
         }
+
         connectionToServer = new Thread(() ->
         {
-            try
+            do
             {
-                // Checking whether you're a driver or fueler.
-                Socket soc = new Socket(ipAddress, port);
-                System.out.println("Connected to server.");
-                ObjectOutputStream outputStream = new ObjectOutputStream(soc.getOutputStream());
-                System.out.println("Sending data of being driver.");
-                outputStream.writeBoolean(true);
-                outputStream.flush();
-
-                // Reseting streams to communicate.
-                outputStream = new ObjectOutputStream(soc.getOutputStream());
-                ObjectInputStream inputStream = new ObjectInputStream(soc.getInputStream());
-                while (!soc.isClosed())
+                try
                 {
-                    Gson gson = new Gson();
-                    ServerToDriverData inData = gson.fromJson((String)inputStream.readObject(), ServerToDriverData.class);
-                    energyBar.setValue((int)(inData.energy * 100));
-
-                    temperatureLabel.setText(String.format("%.1f", inData.temperatureShip)  + "°C");
-
-                    DriverToServerData outData = new DriverToServerData();
-                    outData.isLeftPressed = steerLeftBtn.getModel().isPressed();
-                    outData.isRightPressed = steerRightBtn.getModel().isPressed();
-                    outData.isCoolingPressed = turnOnFanBtn.getModel().isPressed();
-                    outputStream.writeObject(outData);
-
-
-                    for (int i = 0; i < meteorSprites.length; i++)
-                    {
-                        if (inData.meteors.size() > i && inData.meteors.get(i) != null)
-                        {
-                            meteorSprites[i].setVisible(true);
-                            // Add 5 because ship is 10 units wide.
-                            meteorSprites[i].setBounds(((int)((inData.meteors.get(i).x - inData.shipPos + 5) * 60) - 100), (int)(-3.5f * inData.meteors.get(i).y + 150.0f), 200, 200);
-                        }
-                        else
-                            meteorSprites[i].setVisible(false);
-                    }
+                    soc = new Socket(ipAddress, port);
+                    System.out.println("Connected to server.");
                 }
-                System.out.println("Stopped connection.");
-            }
-            catch (Exception e)
+                catch (ConnectException e)
+                {
+                    System.out.println("Trying to reconnect...");
+                }
+                catch (Exception e)
+                {
+                    e.printStackTrace();
+                    applicationRuns = false;
+                }
+            } while (soc == null && applicationRuns);
+
+            if (applicationRuns)
             {
-                e.printStackTrace();
-                window.dispose();
+                try
+                {
+                    ObjectOutputStream outputStream = new ObjectOutputStream(soc.getOutputStream());
+                    outputStream.writeBoolean(true);
+                    outputStream.flush();
+
+                    // Reseting streams to communicate.
+                    outputStream = new ObjectOutputStream(soc.getOutputStream());
+                    ObjectInputStream inputStream = new ObjectInputStream(soc.getInputStream());
+                    while (applicationRuns)
+                    {
+                        Gson gson = new Gson();
+                        ServerToDriverData inData = gson.fromJson((String)inputStream.readObject(), ServerToDriverData.class);
+                        energyBar.setValue((int)(inData.energy * 100));
+
+                        temperatureLabel.setText(String.format("%.1f", inData.temperatureShip)  + "°C");
+                        gameTimeLabel.setText("Time: " + String.format("%.1f", inData.gameTimePassed) + "s");
+
+                        DriverToServerData outData = new DriverToServerData();
+                        outData.isLeftPressed = steerLeftBtn.getModel().isPressed();
+                        outData.isRightPressed = steerRightBtn.getModel().isPressed();
+                        outData.isCoolingPressed = turnOnFanBtn.getModel().isPressed();
+                        outputStream.writeObject(outData);
+
+
+
+                        for (int i = 0; i < meteorSprites.length; i++)
+                        {
+                            if (inData.meteors.size() > i && inData.meteors.get(i) != null)
+                            {
+                                meteorSprites[i].setVisible(true);
+                                meteorSprites[i].setBounds(((int)((inData.meteors.get(i).x - inData.shipPos + 5) * 60) - 100), (int)(-3.5f * inData.meteors.get(i).y + 150.0f), 200, 200);
+                            }
+                            else
+                                meteorSprites[i].setVisible(false);
+                        }
+                    }
+                    System.out.println("Stopped connection.");
+                }
+                catch (EOFException | SocketException se)
+                {
+                    System.out.println("Lost connection to server.");
+                    applicationRuns = false;
+                }
+                catch (Exception e)
+                {
+                    e.printStackTrace();
+                    window.dispose();
+                }
             }
+
         });
         connectionToServer.start();
 

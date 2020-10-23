@@ -1,8 +1,20 @@
 import javax.swing.*;
 import java.awt.*;
+import java.awt.event.WindowAdapter;
+import java.awt.event.WindowEvent;
 
 public class Launcher
 {
+    final String driverTooltip = "As a pilot, avoid hitting meteors, communicate with your fueler " +
+                                "to make sure you don't freeze (-10°C) nor melt (50°C) " +
+                                "and help him sustain furnace temperature by using emergency cooling.";
+    final String fuelerTooltip = "As a fueler, sustain furnace temperature by adding fuel and opening heating valves. " +
+                                "By keeping temperature high, energy generation stays high. " +
+                                "If temperature gets too low or too high - game over. " +
+                                "You can also use batteries to keep backup charge in case pilot needs it for later.";
+
+    boolean applicationRuns = true;
+
     JFrame window;
     JPanel panel;
     JButton roleBtn;
@@ -39,8 +51,18 @@ public class Launcher
 
     Launcher()
     {
-        window = new JFrame();
+        window = new JFrame("AWSJ - Launcher");
         window.setSize(300, 240);
+        window.setDefaultCloseOperation(WindowConstants.DISPOSE_ON_CLOSE);
+        window.addWindowListener(new WindowAdapter()
+        {
+            @Override
+            public void windowClosing(WindowEvent we)
+            {
+                applicationRuns = false;
+                super.windowClosing(we);
+            }
+        });
         window.setLayout(null);
         window.setResizable(false);
 
@@ -51,15 +73,23 @@ public class Launcher
 
         roleBtn = new JButton();
         roleBtn.setText("Role: Pilot");
+        roleBtn.setToolTipText(driverTooltip);
         roleBtn.setMargin(new Insets(0, 0, 0, 0));
         roleBtn.setBounds(100, 40, 100, 40);
 
         roleBtn.addActionListener(action ->
         {
             if (roleBtn.getText().equals("Role: Pilot"))
+            {
                 roleBtn.setText("Role: Fueler");
+                roleBtn.setToolTipText(fuelerTooltip);
+            }
             else
+            {
                 roleBtn.setText("Role: Pilot");
+                roleBtn.setToolTipText(driverTooltip);
+            }
+
         });
 
         startServerBtn = new JButton();
@@ -71,7 +101,6 @@ public class Launcher
         {
             if (tryParseInt(port.getText()))
             {
-                System.out.println("Bop");
                 serverThread = new Thread(() -> server = new ShipServerMain(Integer.parseInt(port.getText())));
                 serverThread.start();
             }
@@ -125,6 +154,7 @@ public class Launcher
         panel.add(portLabel);
         panel.add(joinBtn);
         window.setVisible(true);
+
 
         try
         {
