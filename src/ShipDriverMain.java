@@ -157,7 +157,8 @@ public class ShipDriverMain
                     applicationRuns = false;
                 }
             }
-            System.out.println("Connected.");
+            if (connected)
+                System.out.println("Connected.");
 
 
             if (applicationRuns)
@@ -200,6 +201,7 @@ public class ShipDriverMain
 
 
                         outputStream.writeObject(gson.toJson(outData));
+                        outputStream.reset();
                     }
                     soc.close();
                     System.out.println("Stopped connection.");

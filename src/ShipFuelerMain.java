@@ -183,7 +183,8 @@ public class ShipFuelerMain
                     applicationRuns = false;
                 }
             }
-            System.out.println("Connected.");
+            if (connected)
+                System.out.println("Connected.");
 
             if (applicationRuns)
             {
@@ -243,7 +244,7 @@ public class ShipFuelerMain
 
                         String outString = new Gson().toJson(outData);
                         outputStream.writeObject(outString);
-
+                        outputStream.reset();
 
                     }
                     outputStream.close();

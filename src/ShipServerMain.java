@@ -359,7 +359,7 @@ public class ShipServerMain
                         driverOut.writeObject(outString);
 
                         driverDataIn = gson.fromJson((String)driverIn.readObject(), DriverToServerData.class);
-
+                        driverOut.reset();
                     }
                     catch (Exception e)
                     {
@@ -374,6 +374,8 @@ public class ShipServerMain
                             ie.printStackTrace();
                         }
                     }
+
+
                 }
                 if (!fuelerSoc.isClosed())
                 {
@@ -396,6 +398,8 @@ public class ShipServerMain
                         fuelerDataIn = gson.fromJson((String)fuelerIn.readObject(), FuelerToServerData.class);
                         if (fuelerDataIn.action != FuelerAction.noAction)
                             fuelerActions.add(fuelerDataIn.action);
+
+                        fuelerOut.reset();
                     }
                     catch (Exception e)
                     {
