@@ -150,7 +150,7 @@ public class ShipFuelerMain
             ObjectOutputStream outputStream = null;
 
             boolean connected = false;
-            while (!connected)
+            while (!connected && applicationRuns)
             {
                 try
                 {
