@@ -14,4 +14,6 @@ public class ServerToFuelerData implements Serializable
     public boolean isEnoughToCharge;
     public boolean isHeaterOn;
     public ArrayList<Meteor> meteors;
+    public String gameOverReason;
+    public boolean isGameOver;
 }

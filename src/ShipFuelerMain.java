@@ -7,12 +7,13 @@ import java.awt.event.ActionEvent;
 import java.awt.event.ActionListener;
 import java.awt.event.WindowAdapter;
 import java.awt.event.WindowEvent;
-import java.io.EOFException;
-import java.io.ObjectInputStream;
-import java.io.ObjectOutputStream;
+import java.io.*;
 import java.net.ConnectException;
 import java.net.Socket;
 import java.net.SocketException;
+import java.util.LinkedList;
+import java.util.Queue;
+import java.util.concurrent.LinkedBlockingQueue;
 
 public class ShipFuelerMain
 {
@@ -30,31 +31,18 @@ public class ShipFuelerMain
     JLabel energyLabel;
     JLabel batteriesChargedLabel;
     JLabel gameTimeLabel;
+    JLabel gameOverText;
+
+    volatile LinkedList<FuelerAction> pendingActions = new LinkedList<FuelerAction>();
 
     Thread connectionToServer;
 
     volatile Socket soc;
-    ServerToFuelerData inData;
+
 
     public static void main(String[] args)
     {
         ShipFuelerMain fuelManager = new ShipFuelerMain(args[0], Integer.parseInt(args[1]));
-    }
-
-    public void SendAction(FuelerAction action)
-    {
-        try
-        {
-            ObjectOutputStream outputStream = new ObjectOutputStream(soc.getOutputStream());
-            FuelerToServerData data = new FuelerToServerData();
-            data.action = action;
-            outputStream.writeObject(data);
-            outputStream.flush();
-        }
-        catch (Exception e)
-        {
-            e.printStackTrace();
-        }
     }
 
     public void setTextOnHeater(boolean isOn)
@@ -96,7 +84,6 @@ public class ShipFuelerMain
         panel.setBounds(0, 0, 600, 600);
 
         window.add(panel);
-        window.setVisible(true);
         window.setResizable(false);
 
         addFuelBtn = new JButton();
@@ -140,6 +127,11 @@ public class ShipFuelerMain
         batteriesChargedLabel.setText("No info.");
         batteriesChargedLabel.setBounds(370, 460, 150, 40);
 
+        gameOverText = new JLabel();
+        gameOverText.setText("CONNECTING...");
+        gameOverText.setBounds(10, 10, 600, 50);
+        gameOverText.setFont(new Font("tahoma", Font.PLAIN, 20));
+
         panel.add(addFuelBtn);
         panel.add(chargeBatteryBtn);
         panel.add(chargeShipBtn);
@@ -148,16 +140,38 @@ public class ShipFuelerMain
         panel.add(temperatureBar);
         panel.add(gameTimeLabel);
         panel.add(batteriesChargedLabel);
+        panel.add(gameOverText);
+        window.setVisible(true);
 
 
         connectionToServer = new Thread(() ->
         {
-            do
+            ObjectInputStream inputStream = null;
+            ObjectOutputStream outputStream = null;
+
+            boolean connected = false;
+            while (!connected)
             {
                 try
                 {
+                    Thread.sleep(1000);
+                    System.out.println("Trying to connect...");
                     soc = new Socket(ipAddress, port);
-                    System.out.println("Connected to server.");
+                    ObjectOutputStream currentOut = new ObjectOutputStream(soc.getOutputStream());
+                    ObjectInputStream currentIn = new ObjectInputStream(soc.getInputStream());
+                    currentOut.writeInt(2);
+                    currentOut.flush();
+
+                    connected = currentIn.readBoolean();
+                    if (!connected)
+                    {
+                        soc.close();
+                    }
+                    else
+                    {
+                        inputStream = currentIn;
+                        outputStream = currentOut;
+                    }
                 }
                 catch (ConnectException e)
                 {
@@ -168,23 +182,19 @@ public class ShipFuelerMain
                     e.printStackTrace();
                     applicationRuns = false;
                 }
-            } while (soc == null && applicationRuns);
+            }
+            System.out.println("Connected.");
 
             if (applicationRuns)
             {
                 try
                 {
-                    ObjectOutputStream outputStream = new ObjectOutputStream(soc.getOutputStream());
-                    outputStream.writeBoolean(false);
-                    outputStream.flush();
-
-
-                    // Reseting input stream to communicate.
-                    ObjectInputStream inputStream = new ObjectInputStream(soc.getInputStream());
                     while (applicationRuns)
                     {
+                        // Input
                         String input = (String) inputStream.readObject();
                         ServerToFuelerData inData = new Gson().fromJson(input, ServerToFuelerData.class);
+
                         chargeBatteryBtn.setEnabled(inData.chargeBatteryCooldown <= 0 && inData.batteriesCharged < 10 && inData.isEnoughToCharge);
                         chargeShipBtn.setEnabled(inData.chargeShipCooldown <= 0 && inData.batteriesCharged > 0);
 
@@ -213,7 +223,31 @@ public class ShipFuelerMain
 
                         setTextOnHeater(inData.isHeaterOn);
                         temperatureBar.setForeground(new Color((int) (inData.temperaturePercent * 255), 0, 0));
+
+                        if (inData.isGameOver)
+                        {
+                            gameOverText.setText(inData.gameOverReason);
+                        }
+                        else
+                        {
+                            gameOverText.setText("");
+                        }
+
+                        // Output
+                        FuelerToServerData outData = new FuelerToServerData();
+                        if (!pendingActions.isEmpty())
+                            outData.action = pendingActions.poll();
+                        else
+                            outData.action = FuelerAction.noAction;
+
+
+                        String outString = new Gson().toJson(outData);
+                        outputStream.writeObject(outString);
+
+
                     }
+                    outputStream.close();
+                    inputStream.close();
                     System.out.println("Stopped connection.");
                 }
                 catch (EOFException | SocketException se)
@@ -224,20 +258,18 @@ public class ShipFuelerMain
                 catch (Exception e)
                 {
                     e.printStackTrace();
+                    applicationRuns = false;
+                    window.dispose();
                 }
             }
         });
         connectionToServer.start();
 
 
-        addFuelBtn.addActionListener(e -> SendAction(FuelerAction.addedFuel));
-        chargeBatteryBtn.addActionListener(e -> SendAction(FuelerAction.chargedBattery));
-        chargeShipBtn.addActionListener(e -> SendAction(FuelerAction.chargedShip));
-        switchHeatingBtn.addActionListener(e ->
-        {
-            SendAction(FuelerAction.switchedHeater);
-            setTextOnHeater(!inData.isHeaterOn);
-        });
+        addFuelBtn.addActionListener(e -> pendingActions.add(FuelerAction.addedFuel));
+        chargeBatteryBtn.addActionListener(e -> pendingActions.add(FuelerAction.chargedBattery));
+        chargeShipBtn.addActionListener(e -> pendingActions.add(FuelerAction.chargedShip));
+        switchHeatingBtn.addActionListener(e -> pendingActions.add(FuelerAction.switchedHeater));
 
 
 

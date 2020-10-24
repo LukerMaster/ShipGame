@@ -10,4 +10,6 @@ public class ServerToDriverData implements Serializable
     public float shipPos;
     public float temperatureShip;
     public ArrayList<Meteor> meteors;
+    public String gameOverReason;
+    public boolean isGameOver;
 }

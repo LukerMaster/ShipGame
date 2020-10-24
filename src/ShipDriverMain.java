@@ -24,6 +24,7 @@ public class ShipDriverMain
 
     JLabel temperatureLabel;
     JLabel gameTimeLabel;
+    JLabel gameOverText;
 
     JPanelWithBG[] meteorSprites;
 
@@ -64,7 +65,6 @@ public class ShipDriverMain
         panel.setBounds(0, 0, 600, 600);
 
         window.add(panel);
-        window.setVisible(true);
         window.setResizable(false);
 
         steerLeftBtn = new JButton();
@@ -97,12 +97,19 @@ public class ShipDriverMain
         gameTimeLabel.setText("Not connected.");
         gameTimeLabel.setBounds(222, 505, 100, 30);
 
+        gameOverText = new JLabel();
+        gameOverText.setText("CONNECTING...");
+        gameOverText.setBounds(10, 10, 600, 50);
+        gameOverText.setFont(new Font("tahoma", Font.PLAIN, 20));
+
         panel.add(steerLeftBtn);
         panel.add(steerRightBtn);
         panel.add(turnOnFanBtn);
         panel.add(energyBar);
         panel.add(gameTimeLabel);
         panel.add(temperatureLabel);
+        panel.add(gameOverText);
+        window.setVisible(true);
 
         meteorSprites = new JPanelWithBG[10];
         for (int i = 0; i < meteorSprites.length; i++)
@@ -113,12 +120,32 @@ public class ShipDriverMain
 
         connectionToServer = new Thread(() ->
         {
-            do
+            ObjectInputStream inputStream = null;
+            ObjectOutputStream outputStream = null;
+
+            boolean connected = false;
+            while (!connected)
             {
                 try
                 {
+                    Thread.sleep(1000);
+                    System.out.println("Trying to connect...");
                     soc = new Socket(ipAddress, port);
-                    System.out.println("Connected to server.");
+                    ObjectOutputStream currentOut = new ObjectOutputStream(soc.getOutputStream());
+                    ObjectInputStream currentIn = new ObjectInputStream(soc.getInputStream());
+                    currentOut.writeInt(1);
+                    currentOut.flush();
+
+                    connected = currentIn.readBoolean();
+                    if (!connected)
+                    {
+                        soc.close();
+                    }
+                    else
+                    {
+                        inputStream = currentIn;
+                        outputStream = currentOut;
+                    }
                 }
                 catch (ConnectException e)
                 {
@@ -129,36 +156,22 @@ public class ShipDriverMain
                     e.printStackTrace();
                     applicationRuns = false;
                 }
-            } while (soc == null && applicationRuns);
+            }
+            System.out.println("Connected.");
+
 
             if (applicationRuns)
             {
                 try
                 {
-                    ObjectOutputStream outputStream = new ObjectOutputStream(soc.getOutputStream());
-                    outputStream.writeBoolean(true);
-                    outputStream.flush();
-
-                    // Reseting streams to communicate.
-                    outputStream = new ObjectOutputStream(soc.getOutputStream());
-                    ObjectInputStream inputStream = new ObjectInputStream(soc.getInputStream());
                     while (applicationRuns)
                     {
+                        // Input
                         Gson gson = new Gson();
                         ServerToDriverData inData = gson.fromJson((String)inputStream.readObject(), ServerToDriverData.class);
                         energyBar.setValue((int)(inData.energy * 100));
-
                         temperatureLabel.setText(String.format("%.1f", inData.temperatureShip)  + "°C");
                         gameTimeLabel.setText("Time: " + String.format("%.1f", inData.gameTimePassed) + "s");
-
-                        DriverToServerData outData = new DriverToServerData();
-                        outData.isLeftPressed = steerLeftBtn.getModel().isPressed();
-                        outData.isRightPressed = steerRightBtn.getModel().isPressed();
-                        outData.isCoolingPressed = turnOnFanBtn.getModel().isPressed();
-                        outputStream.writeObject(outData);
-
-
-
                         for (int i = 0; i < meteorSprites.length; i++)
                         {
                             if (inData.meteors.size() > i && inData.meteors.get(i) != null)
@@ -169,7 +182,26 @@ public class ShipDriverMain
                             else
                                 meteorSprites[i].setVisible(false);
                         }
+                        if (inData.isGameOver)
+                        {
+                            gameOverText.setText(inData.gameOverReason);
+                        }
+                        else
+                        {
+                            gameOverText.setText("");
+                        }
+
+
+                        // Output
+                        DriverToServerData outData = new DriverToServerData();
+                        outData.isLeftPressed = steerLeftBtn.getModel().isPressed();
+                        outData.isRightPressed = steerRightBtn.getModel().isPressed();
+                        outData.isCoolingPressed = turnOnFanBtn.getModel().isPressed();
+
+
+                        outputStream.writeObject(gson.toJson(outData));
                     }
+                    soc.close();
                     System.out.println("Stopped connection.");
                 }
                 catch (EOFException | SocketException se)
@@ -180,6 +212,7 @@ public class ShipDriverMain
                 catch (Exception e)
                 {
                     e.printStackTrace();
+                    applicationRuns = false;
                     window.dispose();
                 }
             }

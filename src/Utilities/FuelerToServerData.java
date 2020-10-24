@@ -4,5 +4,5 @@ import java.io.Serializable;
 
 public class FuelerToServerData implements Serializable
 {
-    public FuelerAction action;
+    public FuelerAction action = FuelerAction.noAction;
 }
