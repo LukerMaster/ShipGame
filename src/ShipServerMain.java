@@ -1,78 +1,148 @@
 import Utilities.*;
+import Utilities.SocketData.DriverToServerData;
+import Utilities.SocketData.FuelerToServerData;
+import Utilities.SocketData.LobbyToServerData;
+import Utilities.SocketData.ServerToLobbyData;
 import com.google.gson.Gson;
+import com.google.gson.JsonSyntaxException;
 
-import javax.swing.*;
-import java.awt.event.WindowAdapter;
-import java.awt.event.WindowEvent;
 import java.io.*;
-import java.net.BindException;
 import java.net.ServerSocket;
 import java.net.Socket;
-import java.net.SocketException;
-import java.util.ArrayList;
-import java.util.LinkedList;
+import java.net.SocketTimeoutException;
+import java.util.concurrent.CopyOnWriteArrayList;
 
 public class ShipServerMain
 {
-    boolean applicationRuns = true;
-
-    final float batteryCooldownMax = 20.0f;
-    final float shipChargeCooldownMax = 20.0f;
-
-    volatile ArrayList<Meteor> meteors = new ArrayList<>();
-
-    double gameTime = 0.0;
-
     ServerSocket soc;
-
-    Thread mainLoopThread;
-    Thread connectionThread;
-
-    LinkedList<FuelerAction> fuelerActions = new LinkedList<>();
+    volatile CopyOnWriteArrayList<PlayerServerData> players = new CopyOnWriteArrayList<>();
+    int nextID = 1; // ID's need to be unique for each player.
 
     volatile DriverToServerData driverDataIn = new DriverToServerData();
     volatile FuelerToServerData fuelerDataIn = new FuelerToServerData();
 
-    boolean isHeaterOn = false;
-    float shipPos = 0.0f;
-    float energy = 1.0f;
-    float currentFuel = 0.2f;
-    float temperatureFurnace = 0.6f;
-    float temperatureShip = 21.0f;
-    float batteryChargeCooldown = 10.0f;
-    float shipChargeCooldown = 10.0f;
+    volatile boolean gameStarted = false;
 
-    int batteriesCharged = 0;
+    Thread connectionListenerThread;
+    Thread mainThread;
 
-    boolean isGameOver = false;
-    String gameOverCause;
+    Ship ship = new Ship();
+    ServerWindow window;
 
-    JFrame window;
-    JLabel info;
-    JLabel gameTimeLabel;
-
-    private static float clamp(float val, float min, float max)
+    void updateLobbyInfo()
     {
-        return Math.max(min, Math.min(max, val));
+        Object[] playerList = players.toArray();
+        String[] nicknames = new String[players.size()];
+        String[] roles =     new String[players.size()];
+        int[] ids =          new int[players.size()];
+        boolean[] readys =   new boolean[players.size()];
+        for (int i = 0; i < players.size(); i++)
+        {
+            nicknames[i] = ((PlayerServerData)playerList[i]).data.nickname;
+            roles[i] = window.getRoleString(((PlayerServerData)playerList[i]).data.role);
+            ids[i] = ((PlayerServerData)playerList[i]).data.ID;
+            readys[i] = ((PlayerServerData)playerList[i]).data.isReady;
+        }
+        window.setNicknames(ids, nicknames, roles, readys);
+        if (players.size() >= 2)
+        {
+            boolean fuelerSet = false;
+            boolean driverSet = false;
+            for (PlayerServerData p : players)
+            {
+                if (p.data.role == ERole.fueler)
+                    fuelerSet = true;
+                if (p.data.role == ERole.driver)
+                    driverSet = true;
+            }
+            window.startGameBtn.setEnabled(fuelerSet && driverSet); // If both set, button will be enabled
+        }
     }
-    private static int clamp(int val, int min, int max)
+
+    void setRoleOfPlayer(ERole role)
     {
-        return Math.max(min, Math.min(max, val));
+        try
+        {
+            int id = Integer.parseInt(window.idTextBox.getText());
+            for (PlayerServerData p : players)
+            {
+                if (p.data.ID == id)
+                    p.data.role = role;
+                else if (p.data.role == role && role != ERole.spectator) // If other player has this role already, reset it to spectator.
+                    p.data.role = ERole.spectator;
+            }
+
+        }
+        catch (Exception e)
+        {
+            window.printToConsoleAndWindow("Wrong ID!");
+        }
     }
 
-    private void clampValues()
+    void swapRolesOfFuelerAndDriver()
     {
-        energy = clamp(energy, 0.0f, 1.0f);
-        temperatureFurnace = clamp(temperatureFurnace, 0.0f, 1.0f);
-        temperatureShip = clamp(temperatureShip, -273.0f, 42069.0f);
-        currentFuel = clamp(currentFuel, 0.0f, 20.0f);
-        batteriesCharged = clamp(batteriesCharged, 0, 10);
+        for (PlayerServerData p : players)
+        {
+            if (p.data.role == ERole.driver)
+                p.data.role = ERole.fueler;
+            else if (p.data.role == ERole.fueler)
+                p.data.role = ERole.driver;
+        }
     }
 
-    private void printToConsoleAndWindow(String text)
+    void exchangeDataWithClients()
     {
-        System.out.println(text);
-        info.setText(text);
+        for (PlayerServerData targetPlayer: players) // Handling player connections.
+        {
+            new Thread(() ->
+            {
+                // Sending data
+                ServerToLobbyData outData = new ServerToLobbyData();
+                for (PlayerServerData player : players)
+                {
+                    outData.players.add(player.data);
+                    outData.yourID = targetPlayer.data.ID;
+                    outData.gameStarted = gameStarted;
+                }
+                try
+                {
+                    synchronized (targetPlayer)
+                    {
+                        targetPlayer.outputStream.writeObject(new Gson().toJson(outData));
+                        targetPlayer.outputStream.flush();
+
+                        // Receiving data
+                        LobbyToServerData inData = new Gson().fromJson((String) targetPlayer.inputStream.readObject(), LobbyToServerData.class);
+                        targetPlayer.data.nickname = inData.nickname;
+                        targetPlayer.data.isReady = inData.isReady;
+
+                        targetPlayer.outputStream.reset();
+                    }
+                } catch (SocketTimeoutException e)
+                {
+                    outData.timeout = true;
+                    try
+                    {
+                        targetPlayer.outputStream.writeObject(new Gson().toJson(outData));
+                    } catch (IOException ie)
+                    {
+                        ie.printStackTrace();
+                    }
+                    players.remove(targetPlayer);
+                    window.printToConsoleAndWindow("Player timed out. " + players.size() + " players left.");
+                }
+                catch (IllegalStateException | JsonSyntaxException se)
+                {
+                    System.out.println("Player connection error. Skipping packet.");
+                }
+                catch (Exception e)
+                {
+                    e.toString();
+                    players.remove(targetPlayer);
+                    window.printToConsoleAndWindow("Player encountered an error while connecting. Kicked. " + players.size() + " players left. | " + e.toString());
+                }
+            }).start();
+        }
     }
 
     public static void main(String[] args)
@@ -82,352 +152,82 @@ public class ShipServerMain
 
     ShipServerMain(int port)
     {
-        window = new JFrame("Absolutely Worst Space Journey - Server");
-        window.setSize(450, 100);
-        window.setResizable(false);
-        window.setDefaultCloseOperation(WindowConstants.DISPOSE_ON_CLOSE);
-        window.addWindowListener(new WindowAdapter()
+        window = new ServerWindow();
+        window.printToWindow("Server started. Waiting for players.");
+
+        window.setFuelerBtn.addActionListener(a -> setRoleOfPlayer(ERole.fueler));
+        window.setDriverBtn.addActionListener(a -> setRoleOfPlayer(ERole.driver));
+        window.swapRolesBtn.addActionListener(a -> swapRolesOfFuelerAndDriver());
+        window.startGameBtn.addActionListener(a -> {gameStarted = true; ship = new Ship();});
+
+        connectionListenerThread = new Thread(() ->
         {
-            @Override
-            public void windowClosing(WindowEvent we)
+            while (!gameStarted && window.isWindowOpened())
             {
-                applicationRuns = false;
-                try
+                Socket current = ConnectionEstablisher.ListenForConnections(port);
+                if (current != null)
                 {
-                    if (soc != null)
-                        soc.close();
-                }
-                catch (Exception e)
-                {
-                    e.printStackTrace();
-                }
-
-                super.windowClosing(we);
-            }
-        });
-        window.setLayout(null);
-
-        info = new JLabel();
-        info.setText("Starting...");
-        info.setBounds(10, 10, 380, 20);
-
-        gameTimeLabel = new JLabel();
-        gameTimeLabel.setText("Game not started yet.");
-        gameTimeLabel.setBounds(10, 40, 380, 20);
-
-        window.add(info);
-        window.add(gameTimeLabel);
-        window.setVisible(true);
-
-
-
-
-        // Main loop of the game.
-        mainLoopThread = new Thread(() ->
-        {
-            try
-            {
-                printToConsoleAndWindow("Main game loop started.");
-                while (applicationRuns && !isGameOver)
-                {
-                    Thread.sleep(2);
-                        gameTime += 0.002;
-                    gameTimeLabel.setText("Game time: " + String.format("%.1f", gameTime) + "s");
-
-                    batteryChargeCooldown -= 0.002f;
-                    shipChargeCooldown -= 0.002f;
-
-                    // Calculate the meteors
-                    if (meteors.size() < 10) meteors.add(new Meteor(shipPos, 200, true));
-
-
-                    meteors.removeIf(meteor -> meteor.y < 0);
-                    for (Meteor m : meteors)
-                    {
-                        m.y += m.velY;
-                        m.x += m.velX;
-                    }
-
-
-                    // Drain energy when steering
-                    energy -= 0.0001f;
-                    if (driverDataIn.isLeftPressed || driverDataIn.isRightPressed && energy > 0.0012f)
-                    {
-                        energy -= 0.0012f;
-                        if (driverDataIn.isRightPressed)
-                            shipPos += 0.03f;
-                        if (driverDataIn.isLeftPressed)
-                            shipPos -= 0.03f;
-                    }
-                    if (driverDataIn.isCoolingPressed)
-                    {
-                        energy -= 0.0002f;
-                        temperatureFurnace -= 0.0008f;
-                        temperatureShip -= 0.01f;
-                    }
-                    // Fueler data processing
-                    FuelerAction action = fuelerActions.size() > 0 ? fuelerActions.poll() : FuelerAction.noAction;
-                    switch (action)
-                    {
-                        case noAction:
-                            break;
-                        case addedFuel:
-                        {
-                            currentFuel += 0.2f;
-                        }
-                        break;
-                        case chargedShip:
-                        {
-                            energy += 0.5f;
-                            batteriesCharged--;
-                            shipChargeCooldown = shipChargeCooldownMax;
-                        }
-                        break;
-                        case chargedBattery:
-                        {
-                            energy -= 0.5f;
-                            batteriesCharged++;
-                            batteryChargeCooldown = batteryCooldownMax;
-                        }
-                        break;
-                        case switchedHeater:
-                        {
-                            isHeaterOn = !isHeaterOn;
-                        }
-                        break;
-                    }
-
-
-
-                    // Burn the fuel
-                    if (currentFuel > 0.0f)
-                    {
-                        currentFuel -= 0.00002f;
-                        temperatureFurnace += 0.0004f * currentFuel * currentFuel;
-
-                        // Charge the ship from the boiler
-                        if (energy < 1.0f)
-                        {
-                            temperatureFurnace -= 0.0003f * currentFuel;
-                            energy += 0.0005f * temperatureFurnace;
-                        }
-                    }
-                    // Cool down the furnace if no fuel
-                    else
-                        temperatureFurnace -= (0.001f * temperatureFurnace) + 0.00005f;
-
-
-
-                    // Heating the ship
-                    if (isHeaterOn)
-                    {
-                        temperatureFurnace -= 0.0002f * temperatureFurnace;
-                        temperatureShip += 0.005f * temperatureFurnace * temperatureFurnace;
-                    }
-
-                    // Game overs.
-                    for (Meteor m : meteors)
-                    {
-                        if (m.y < 1 && Math.abs(shipPos - m.x) < 5)
-                        {
-                            gameOverCause = "Ship violently smashed by a meteor.";
-                            isGameOver = true;
-                            break;
-                        }
-                    }
-                    if (temperatureFurnace >= 1.0f)
-                    {
-                        gameOverCause = "Ship boiler exploded.";
-                        isGameOver = true;
-                    }
-                    else if (temperatureFurnace <= 0.0f)
-                    {
-                        gameOverCause = "Ship boiler stalled.";
-                        isGameOver = true;
-                    }
-                    else if (temperatureShip < -10.0f)
-                    {
-                        gameOverCause = "Ship driver frozen.";
-                        isGameOver = true;
-                    }
-                    else if (temperatureShip > 50.0f)
-                    {
-                        gameOverCause = "Ship driver melted.";
-                        isGameOver = true;
-                    }
-
-                    if (isGameOver)
-                        printToConsoleAndWindow(gameOverCause);
-
-                    clampValues();
-                }
-            }
-            catch (Exception e)
-            {
-                e.printStackTrace();
-            }
-        });
-
-        connectionThread = new Thread(() ->
-        {
-            try
-            {
-                soc = new ServerSocket(port);
-            }
-            catch (IOException ie)
-            {
-                ie.printStackTrace();
-            }
-
-            ObjectOutputStream driverOut = null;
-            ObjectOutputStream fuelerOut = null;
-
-            ObjectInputStream driverIn = null;
-            ObjectInputStream fuelerIn = null;
-
-            Socket driverSoc = null;
-            Socket fuelerSoc = null;
-            while ((driverSoc == null || fuelerSoc == null) && applicationRuns)
-            {
-                try
-                {
-                    boolean decision = false;
-                    Socket current = soc.accept();
-                    ObjectInputStream currentIn = new ObjectInputStream(current.getInputStream());
-                    ObjectOutputStream currentOut = new ObjectOutputStream(current.getOutputStream());
-                    int type = currentIn.readInt(); // 1 - Driver, 2 - Fueler, 3 - Spectator
-                    if (type == 1 && driverSoc == null)
-                    {
-                        driverSoc = current;
-                        driverIn = currentIn;
-                        driverOut = currentOut;
-                        decision = true;
-                        printToConsoleAndWindow("Driver Connected.");
-                    }
-                    else if (type == 2 && fuelerSoc == null)
-                    {
-                        fuelerSoc = current;
-                        fuelerIn = currentIn;
-                        fuelerOut = currentOut;
-                        decision = true;
-                        printToConsoleAndWindow("Fueler Connected.");
-                    }
-                    currentOut.writeBoolean(decision);
-                    currentOut.flush();
-                    if (decision == false)
-                        current.close();
-
-                }
-                catch (Exception e)
-                {
-                    e.printStackTrace();
-                }
-            }
-            if (applicationRuns)
-            {
-                printToConsoleAndWindow("Both players connected. Game starts in 2 seconds.");
-                try
-                {
-                    Thread.sleep(2000);
-                }
-                catch (Exception e)
-                {
-                    e.printStackTrace();
-                }
-                mainLoopThread.start();
-                printToConsoleAndWindow("Game started.");
-            }
-
-
-            while (applicationRuns)
-            {
-                if (!driverSoc.isClosed())
-                {
-                    ServerToDriverData driverDataOut = new ServerToDriverData();
-                    driverDataOut.energy = energy;
-                    driverDataOut.gameTimePassed = gameTime;
-                    driverDataOut.meteors = new ArrayList<>(meteors);
-                    driverDataOut.shipPos = shipPos;
-                    driverDataOut.temperatureShip = temperatureShip;
-                    driverDataOut.isGameOver = isGameOver;
-                    driverDataOut.gameOverReason = gameOverCause;
-
                     try
                     {
-                        Gson gson = new Gson();
-                        String outString = gson.toJson(driverDataOut);
-                        driverOut.writeObject(outString);
+                        PlayerServerData newPlayer = new PlayerServerData();
 
-                        driverDataIn = gson.fromJson((String)driverIn.readObject(), DriverToServerData.class);
-                        driverOut.reset();
-                    }
-                    catch (Exception e)
+                        newPlayer.data.ID = nextID;
+                        nextID++;
+
+                        newPlayer.socket = current;
+                        newPlayer.socket.setSoTimeout(2000);
+                        newPlayer.outputStream = new ObjectOutputStream(current.getOutputStream());
+                        newPlayer.inputStream = new ObjectInputStream(current.getInputStream());
+                        newPlayer.data.nickname = "Connecting...";
+                        newPlayer.data.role = ERole.spectator;
+                        newPlayer.data.isReady = false;
+                        players.add(newPlayer);
+                        window.printToConsoleAndWindow("Connected " + players.size() + " players.");
+                    } catch (Exception e)
                     {
-                        isGameOver = true;
-                        gameOverCause = "Driver decided to commit sudoku.";
-                        try
-                        {
-                            driverSoc.close();
-                        }
-                        catch (Exception ie)
-                        {
-                            ie.printStackTrace();
-                        }
-                    }
-
-
-                }
-                if (!fuelerSoc.isClosed())
-                {
-                    ServerToFuelerData fuelerDataOut = new ServerToFuelerData();
-                    fuelerDataOut.batteriesCharged = batteriesCharged;
-                    fuelerDataOut.chargeBatteryCooldown = batteryChargeCooldown;
-                    fuelerDataOut.chargeShipCooldown = shipChargeCooldown;
-                    fuelerDataOut.EnergyLabel = energy > 0.95f ? "Full" : energy > 0.5f ? "Ok" : energy > 0.25f ? "Not ok" : "NOT OK!";
-                    fuelerDataOut.gameTimePassed = gameTime;
-                    fuelerDataOut.isEnoughToCharge = energy > 0.5f;
-                    fuelerDataOut.isHeaterOn = isHeaterOn;
-                    fuelerDataOut.temperaturePercent = temperatureFurnace;
-                    fuelerDataOut.isGameOver = isGameOver;
-                    fuelerDataOut.gameOverReason = gameOverCause;
-                    try
-                    {
-                        Gson gson = new Gson();
-                        String outString = gson.toJson(fuelerDataOut);
-                        fuelerOut.writeObject(outString);
-                        fuelerDataIn = gson.fromJson((String)fuelerIn.readObject(), FuelerToServerData.class);
-                        if (fuelerDataIn.action != FuelerAction.noAction)
-                            fuelerActions.add(fuelerDataIn.action);
-
-                        fuelerOut.reset();
-                    }
-                    catch (Exception e)
-                    {
-                        isGameOver = true;
-                        gameOverCause = "Fueler jumped out of the window.";
-                        try
-                        {
-                            fuelerSoc.close();
-                        }
-                        catch (Exception ie)
-                        {
-                            ie.printStackTrace();
-                        }
+                        e.printStackTrace();
                     }
                 }
-
             }
+            System.out.println("Connection thread shut off.");
+        });
+        mainThread = new Thread(()->
+        {
+            float dt = 0.05f;
+            while (window.isWindowOpened())
+            {
+                try
+                {
+                    Thread.sleep((long)(dt*1000));
+                }
+                catch (Exception e)
+                {
+                    e.printStackTrace();
+                }
 
+                exchangeDataWithClients();
+                updateLobbyInfo();
 
+                if (gameStarted)
+                {
+                    ship.update(dt);
+                    window.printToConsoleAndWindow("Game started: " + String.format("%.2f", ship.gameTime) + "s.");
+                }
+                
+            }
+            System.out.println("Lobby thread shut off.");
         });
 
-        if (applicationRuns)
+
+        if (window.isWindowOpened())
         {
-            connectionThread.start();
+            connectionListenerThread.start();
+            mainThread.start();
             try
             {
-                mainLoopThread.join();
-                connectionThread.join();
+                connectionListenerThread.join();
+                mainThread.join();
+                System.out.println("Server stopped.");
             }
             catch (Exception e)
             {
@@ -436,9 +236,7 @@ public class ShipServerMain
         }
         else
         {
-            printToConsoleAndWindow("Shutting down the server.");
+            window.printToConsoleAndWindow("Shutting down the server.");
         }
-
-
     }
 }

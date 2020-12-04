@@ -2,6 +2,7 @@ import javax.swing.*;
 import java.awt.*;
 import java.awt.event.WindowAdapter;
 import java.awt.event.WindowEvent;
+import java.util.Random;
 
 public class Launcher
 {
@@ -17,7 +18,6 @@ public class Launcher
 
     JFrame window;
     JPanel panel;
-    JButton roleBtn;
     JButton startServerBtn;
     JButton joinBtn;
 
@@ -25,14 +25,14 @@ public class Launcher
     JTextField ipAddress;
     JLabel portLabel;
     JTextField port;
+    JLabel nicknameLabel;
+    JTextField nickname;
 
 
     Thread serverThread;
-    Thread driverThread;
-    Thread fuelerThread;
+    Thread lobbyThread;
     ShipServerMain server;
-    ShipDriverMain driver;
-    ShipFuelerMain fueler;
+    LobbyClient lobby;
 
     boolean tryParseInt(String value) {
         try {
@@ -71,31 +71,16 @@ public class Launcher
         panel.setLayout(null);
         panel.setBounds(0, 0, window.getSize().width, window.getSize().height);
 
-        roleBtn = new JButton();
-        roleBtn.setText("Role: Pilot");
-        roleBtn.setToolTipText(driverTooltip);
-        roleBtn.setMargin(new Insets(0, 0, 0, 0));
-        roleBtn.setBounds(100, 40, 100, 40);
-
-        roleBtn.addActionListener(action ->
-        {
-            if (roleBtn.getText().equals("Role: Pilot"))
-            {
-                roleBtn.setText("Role: Fueler");
-                roleBtn.setToolTipText(fuelerTooltip);
-            }
-            else
-            {
-                roleBtn.setText("Role: Pilot");
-                roleBtn.setToolTipText(driverTooltip);
-            }
-
-        });
 
         startServerBtn = new JButton();
         startServerBtn.setText("Start Server");
         startServerBtn.setMargin(new Insets(0, 0, 0, 0));
-        startServerBtn.setBounds(100, 10, 100, 30);
+        startServerBtn.setBounds(100, 140, 100, 30);
+
+        joinBtn = new JButton();
+        joinBtn.setText("Join");
+        joinBtn.setMargin(new Insets(0, 0, 0, 0));
+        joinBtn.setBounds(100, 170, 100, 30);
 
         startServerBtn.addActionListener(action ->
         {
@@ -105,51 +90,47 @@ public class Launcher
                 serverThread.start();
             }
         });
-
-        joinBtn = new JButton();
-        joinBtn.setText("Join");
-        joinBtn.setMargin(new Insets(0, 0, 0, 0));
-        joinBtn.setBounds(100, 170, 100, 30);
-
         joinBtn.addActionListener(action ->
         {
             if (tryParseInt(port.getText()))
             {
-                if (roleBtn.getText().equals("Role: Pilot"))
-                {
-                    driverThread = new Thread(() -> driver = new ShipDriverMain(ipAddress.getText(), Integer.parseInt(port.getText())));
-                    driverThread.start();
-                }
-                else
-                {
-                    fuelerThread = new Thread(() -> fueler = new ShipFuelerMain(ipAddress.getText(), Integer.parseInt(port.getText())));
-                    fuelerThread.start();
-                }
-
+                lobbyThread = new Thread(() -> lobby = new LobbyClient(nickname.getText(), ipAddress.getText() ,Integer.parseInt(port.getText())));
+                lobbyThread.start();
             }
         });
 
 
+
+        nicknameLabel = new JLabel();
+        nicknameLabel.setBounds(10, 10, 100, 30);
+        nicknameLabel.setText("Nickname:");
+
         ipAddressLabel = new JLabel();
-        ipAddressLabel.setBounds(10, 90, 100, 30);
+        ipAddressLabel.setBounds(10, 50, 100, 30);
         ipAddressLabel.setText("IP Address:");
+
         portLabel = new JLabel();
-        portLabel.setBounds(10, 130, 100, 30);
+        portLabel.setBounds(10, 90, 100, 30);
         portLabel.setText("Port:");
+
+        nickname = new JTextField();
+        nickname.setText("Astronaut " + new Random().nextInt(10000));
+        nickname.setBounds(100, 10, 100, 30);
 
         ipAddress = new JTextField();
         ipAddress.setText("127.0.0.1");
-        ipAddress.setBounds(100, 90, 100, 30);
+        ipAddress.setBounds(100, 50, 100, 30);
 
         port = new JTextField();
         port.setText("10009");
-        port.setBounds(100, 130, 100, 30);
+        port.setBounds(100, 90, 100, 30);
 
         window.add(panel);
         panel.add(startServerBtn);
-        panel.add(roleBtn);
+        panel.add(nickname);
         panel.add(ipAddress);
         panel.add(port);
+        panel.add(nicknameLabel);
         panel.add(ipAddressLabel);
         panel.add(portLabel);
         panel.add(joinBtn);
@@ -158,10 +139,6 @@ public class Launcher
 
         try
         {
-            if (fuelerThread != null)
-                fuelerThread.join();
-            if (driverThread != null)
-                driverThread.join();
             if (serverThread != null)
                 serverThread.join();
         }

@@ -1,9 +1,11 @@
-package Utilities;
+package Utilities.SocketData;
+
+import Utilities.Meteor;
 
 import java.io.Serializable;
 import java.util.ArrayList;
 
-public class ServerToFuelerData implements Serializable
+public class ServerToFuelerData implements Serializable, PointToPointData
 {
     public String EnergyLabel;
     public float temperaturePercent;
