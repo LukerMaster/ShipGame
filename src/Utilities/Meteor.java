@@ -12,7 +12,12 @@ public class Meteor implements Serializable
         Random r = new Random();
         x = (r.nextFloat() - 0.5f) * maxDistance * 2 + shipPos;
         y = 100.0f;
-        velY = -(r.nextFloat() * 0.02f + 0.05f);
-        velX = (r.nextFloat() - 0.5f) * 0.005f;
+        velY = -(r.nextFloat() * 6.0f + 10.0f);
+        velX = (r.nextFloat() - 0.5f) * 1.0f;
+    }
+    public void move(float dt)
+    {
+        x += velX * dt;
+        y += velY * dt;
     }
 }

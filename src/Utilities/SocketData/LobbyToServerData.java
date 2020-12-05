@@ -1,7 +1,11 @@
 package Utilities.SocketData;
 
-public class LobbyToServerData
+import java.io.Serializable;
+
+public class LobbyToServerData implements Serializable
 {
     public String nickname = "Unknown";
     public boolean isReady = false;
+
+    public PointToPointData gameData;
 }

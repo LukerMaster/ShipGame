@@ -2,7 +2,7 @@ package Utilities.SocketData;
 
 import java.io.Serializable;
 
-public class DriverToServerData implements Serializable, PointToPointData
+public class DriverToServerData implements PointToPointData
 {
     public boolean isLeftPressed;
     public boolean isRightPressed;

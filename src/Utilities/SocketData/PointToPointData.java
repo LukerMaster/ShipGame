@@ -1,5 +1,7 @@
 package Utilities.SocketData;
 
-public interface PointToPointData
+import java.io.Serializable;
+
+public interface PointToPointData extends Serializable
 {
 }

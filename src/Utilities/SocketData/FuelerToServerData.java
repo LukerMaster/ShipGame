@@ -4,7 +4,7 @@ import Utilities.FuelerAction;
 
 import java.io.Serializable;
 
-public class FuelerToServerData implements Serializable, PointToPointData
+public class FuelerToServerData implements PointToPointData
 {
     public FuelerAction action = FuelerAction.noAction;
 }

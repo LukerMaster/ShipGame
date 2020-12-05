@@ -10,6 +10,6 @@ public class PlayerServerData
     public ObjectOutputStream outputStream;
     public ObjectInputStream inputStream;
 
-    public PlayerData data = new PlayerData();
+    public PlayerData lobbyData = new PlayerData();
 }
 

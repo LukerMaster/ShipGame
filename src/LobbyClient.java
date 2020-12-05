@@ -1,8 +1,10 @@
 import Utilities.*;
 import Utilities.SocketData.LobbyToServerData;
+import Utilities.SocketData.PointToPointData;
 import Utilities.SocketData.ServerToLobbyData;
 import com.google.gson.Gson;
 
+import java.awt.*;
 import java.io.IOException;
 import java.io.ObjectInputStream;
 import java.io.ObjectOutputStream;
@@ -23,6 +25,8 @@ public class LobbyClient
     GameWindow gameWindow;
 
     ServerToLobbyData inData;
+
+    PointToPointData gameData;
 
     public static void main(String[] args)
     {
@@ -65,12 +69,12 @@ public class LobbyClient
             LobbyToServerData outData = new LobbyToServerData();
             outData.isReady = isReady;
             outData.nickname = nickname;
+            outData.gameData = gameData;
 
-            outStream.writeObject(new Gson().toJson(outData));
+            outStream.writeObject(outData);
             outStream.flush();
-            inData = new Gson().fromJson((String)inStream.readObject(), ServerToLobbyData.class);
-
             outStream.reset();
+            inData = (ServerToLobbyData)inStream.readObject();
             return true;
         }
         catch (SocketTimeoutException e)
@@ -154,6 +158,10 @@ public class LobbyClient
                             gameWindow = new FuelerWindow();
                     }
                 }
+            }
+            else if (inData.gameData != null)
+            {
+                 gameData = gameWindow.UpdateWindow(inData.gameData);
             }
         }
     }

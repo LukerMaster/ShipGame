@@ -1,6 +1,8 @@
 package Utilities;
 
-public class PlayerData
+import java.io.Serializable;
+
+public class PlayerData implements Serializable
 {
     public int ID;
     public String nickname;

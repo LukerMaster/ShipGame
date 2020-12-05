@@ -2,12 +2,11 @@ package Utilities.SocketData;
 
 import Utilities.Meteor;
 
-import java.io.Serializable;
 import java.util.ArrayList;
 
-public class ServerToFuelerData implements Serializable, PointToPointData
+public class ServerToFuelerData implements PointToPointData
 {
-    public String EnergyLabel;
+    public String energyLabel;
     public float temperaturePercent;
     public float chargeBatteryCooldown;
     public float chargeShipCooldown;
@@ -15,7 +14,8 @@ public class ServerToFuelerData implements Serializable, PointToPointData
     public int batteriesCharged;
     public boolean isEnoughToCharge;
     public boolean isHeaterOn;
-    public ArrayList<Meteor> meteors;
     public String gameOverReason;
     public boolean isGameOver;
+
+    public ArrayList<Meteor> meteors;
 }

@@ -1,8 +1,5 @@
 import Utilities.*;
-import Utilities.SocketData.DriverToServerData;
-import Utilities.SocketData.FuelerToServerData;
-import Utilities.SocketData.LobbyToServerData;
-import Utilities.SocketData.ServerToLobbyData;
+import Utilities.SocketData.*;
 import com.google.gson.Gson;
 import com.google.gson.JsonSyntaxException;
 
@@ -26,6 +23,8 @@ public class ShipServerMain
     Thread connectionListenerThread;
     Thread mainThread;
 
+    FuelerToServerData fuelerData;
+    DriverToServerData driverData;
     Ship ship = new Ship();
     ServerWindow window;
 
@@ -38,10 +37,10 @@ public class ShipServerMain
         boolean[] readys =   new boolean[players.size()];
         for (int i = 0; i < players.size(); i++)
         {
-            nicknames[i] = ((PlayerServerData)playerList[i]).data.nickname;
-            roles[i] = window.getRoleString(((PlayerServerData)playerList[i]).data.role);
-            ids[i] = ((PlayerServerData)playerList[i]).data.ID;
-            readys[i] = ((PlayerServerData)playerList[i]).data.isReady;
+            nicknames[i] = ((PlayerServerData)playerList[i]).lobbyData.nickname;
+            roles[i] = window.getRoleString(((PlayerServerData)playerList[i]).lobbyData.role);
+            ids[i] = ((PlayerServerData)playerList[i]).lobbyData.ID;
+            readys[i] = ((PlayerServerData)playerList[i]).lobbyData.isReady;
         }
         window.setNicknames(ids, nicknames, roles, readys);
         if (players.size() >= 2)
@@ -50,9 +49,9 @@ public class ShipServerMain
             boolean driverSet = false;
             for (PlayerServerData p : players)
             {
-                if (p.data.role == ERole.fueler)
+                if (p.lobbyData.role == ERole.fueler)
                     fuelerSet = true;
-                if (p.data.role == ERole.driver)
+                if (p.lobbyData.role == ERole.driver)
                     driverSet = true;
             }
             window.startGameBtn.setEnabled(fuelerSet && driverSet); // If both set, button will be enabled
@@ -66,10 +65,10 @@ public class ShipServerMain
             int id = Integer.parseInt(window.idTextBox.getText());
             for (PlayerServerData p : players)
             {
-                if (p.data.ID == id)
-                    p.data.role = role;
-                else if (p.data.role == role && role != ERole.spectator) // If other player has this role already, reset it to spectator.
-                    p.data.role = ERole.spectator;
+                if (p.lobbyData.ID == id)
+                    p.lobbyData.role = role;
+                else if (p.lobbyData.role == role && role != ERole.spectator) // If other player has this role already, reset it to spectator.
+                    p.lobbyData.role = ERole.spectator;
             }
 
         }
@@ -83,10 +82,10 @@ public class ShipServerMain
     {
         for (PlayerServerData p : players)
         {
-            if (p.data.role == ERole.driver)
-                p.data.role = ERole.fueler;
-            else if (p.data.role == ERole.fueler)
-                p.data.role = ERole.driver;
+            if (p.lobbyData.role == ERole.driver)
+                p.lobbyData.role = ERole.fueler;
+            else if (p.lobbyData.role == ERole.fueler)
+                p.lobbyData.role = ERole.driver;
         }
     }
 
@@ -96,25 +95,35 @@ public class ShipServerMain
         {
             new Thread(() ->
             {
-                // Sending data
                 ServerToLobbyData outData = new ServerToLobbyData();
-                for (PlayerServerData player : players)
-                {
-                    outData.players.add(player.data);
-                    outData.yourID = targetPlayer.data.ID;
-                    outData.gameStarted = gameStarted;
-                }
                 try
                 {
-                    synchronized (targetPlayer)
+                    synchronized (targetPlayer) // Sending data
                     {
-                        targetPlayer.outputStream.writeObject(new Gson().toJson(outData));
+                        for (PlayerServerData player : players)
+                        {
+                            outData.players.add(player.lobbyData);
+                        }
+                        outData.yourID = targetPlayer.lobbyData.ID;
+                        outData.gameStarted = gameStarted;
+                        if (targetPlayer.lobbyData.role == ERole.driver)
+                            outData.gameData = ship.getDriverData();
+                        if (targetPlayer.lobbyData.role == ERole.fueler)
+                            outData.gameData = ship.getFuelerData();
+
+                        targetPlayer.outputStream.writeObject(outData);
                         targetPlayer.outputStream.flush();
 
                         // Receiving data
-                        LobbyToServerData inData = new Gson().fromJson((String) targetPlayer.inputStream.readObject(), LobbyToServerData.class);
-                        targetPlayer.data.nickname = inData.nickname;
-                        targetPlayer.data.isReady = inData.isReady;
+                        LobbyToServerData inData = (LobbyToServerData)targetPlayer.inputStream.readObject();
+                        targetPlayer.lobbyData.nickname = inData.nickname;
+                        targetPlayer.lobbyData.isReady = inData.isReady;
+
+                        if (inData.gameData != null && targetPlayer.lobbyData.role == ERole.driver)
+                            driverData = (DriverToServerData)inData.gameData;
+                        if (inData.gameData != null && targetPlayer.lobbyData.role == ERole.fueler)
+                            fuelerData = (FuelerToServerData)inData.gameData;
+
 
                         targetPlayer.outputStream.reset();
                     }
@@ -123,7 +132,7 @@ public class ShipServerMain
                     outData.timeout = true;
                     try
                     {
-                        targetPlayer.outputStream.writeObject(new Gson().toJson(outData));
+                        targetPlayer.outputStream.writeObject(outData);
                     } catch (IOException ie)
                     {
                         ie.printStackTrace();
@@ -137,9 +146,9 @@ public class ShipServerMain
                 }
                 catch (Exception e)
                 {
-                    e.toString();
+                    e.printStackTrace();
                     players.remove(targetPlayer);
-                    window.printToConsoleAndWindow("Player encountered an error while connecting. Kicked. " + players.size() + " players left. | " + e.toString());
+                    window.printToConsoleAndWindow("Player encountered an error while connecting. " + players.size() + " players left. | " + e.toString());
                 }
             }).start();
         }
@@ -171,16 +180,16 @@ public class ShipServerMain
                     {
                         PlayerServerData newPlayer = new PlayerServerData();
 
-                        newPlayer.data.ID = nextID;
+                        newPlayer.lobbyData.ID = nextID;
                         nextID++;
 
                         newPlayer.socket = current;
                         newPlayer.socket.setSoTimeout(2000);
                         newPlayer.outputStream = new ObjectOutputStream(current.getOutputStream());
                         newPlayer.inputStream = new ObjectInputStream(current.getInputStream());
-                        newPlayer.data.nickname = "Connecting...";
-                        newPlayer.data.role = ERole.spectator;
-                        newPlayer.data.isReady = false;
+                        newPlayer.lobbyData.nickname = "Connecting...";
+                        newPlayer.lobbyData.role = ERole.spectator;
+                        newPlayer.lobbyData.isReady = false;
                         players.add(newPlayer);
                         window.printToConsoleAndWindow("Connected " + players.size() + " players.");
                     } catch (Exception e)
@@ -193,7 +202,7 @@ public class ShipServerMain
         });
         mainThread = new Thread(()->
         {
-            float dt = 0.05f;
+            float dt = 0.01f;
             while (window.isWindowOpened())
             {
                 try
@@ -210,8 +219,8 @@ public class ShipServerMain
 
                 if (gameStarted)
                 {
-                    ship.update(dt);
-                    window.printToConsoleAndWindow("Game started: " + String.format("%.2f", ship.gameTime) + "s.");
+                    ship.update(dt, driverData, fuelerData);
+                    window.printToWindow("Game started: " + String.format("%.2f", ship.gameTime) + "s.");
                 }
                 
             }

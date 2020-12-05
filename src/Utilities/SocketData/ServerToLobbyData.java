@@ -2,11 +2,13 @@ package Utilities.SocketData;
 
 import Utilities.PlayerData;
 
+import java.io.Serializable;
+import java.security.PublicKey;
 import java.util.Vector;
 
 
 
-public class ServerToLobbyData
+public class ServerToLobbyData implements Serializable
 {
     public Vector<PlayerData> players = new Vector<>();
     public boolean timeout = false;
@@ -14,5 +16,5 @@ public class ServerToLobbyData
     public int yourID = 0;
     public boolean gameStarted = false;
 
-    PointToPointData gameData;
+    public PointToPointData gameData = null;
 }

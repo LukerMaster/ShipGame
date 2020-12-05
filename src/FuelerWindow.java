@@ -66,7 +66,7 @@ public class FuelerWindow implements GameWindow
 
 
         temperatureBar.setValue((int) (data.temperaturePercent * 100));
-        energyLabel.setText(data.EnergyLabel);
+        energyLabel.setText(data.energyLabel);
         gameTimeLabel.setText("Time: " + String.format("%.1f", data.gameTimePassed) + "s");
 
         setTextOnHeater(data.isHeaterOn);
