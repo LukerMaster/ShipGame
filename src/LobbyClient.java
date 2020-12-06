@@ -2,15 +2,10 @@ import Utilities.*;
 import Utilities.SocketData.LobbyToServerData;
 import Utilities.SocketData.PointToPointData;
 import Utilities.SocketData.ServerToLobbyData;
-import com.google.gson.Gson;
 
-import java.awt.*;
-import java.io.IOException;
 import java.io.ObjectInputStream;
 import java.io.ObjectOutputStream;
-import java.net.ConnectException;
 import java.net.Socket;
-import java.net.SocketException;
 import java.net.SocketTimeoutException;
 
 public class LobbyClient
@@ -27,6 +22,8 @@ public class LobbyClient
     ServerToLobbyData inData;
 
     PointToPointData gameData;
+
+    boolean prevGameStarted = false; // Used to determine if you should restart game window.
 
     public static void main(String[] args)
     {
@@ -79,11 +76,13 @@ public class LobbyClient
         }
         catch (SocketTimeoutException e)
         {
+            e.printStackTrace();
             window.printToWindow("Disconnected. Server not responding.");
             return false;
         }
         catch (Exception e)
         {
+            e.printStackTrace();
             window.printToWindow("Connection Error. Disconnected.");
             return false;
         }
@@ -108,6 +107,37 @@ public class LobbyClient
         }
         window.setNicknames(ids, nicknames, roles, ready);
         window.printToWindow("Connected! Your ID: " + inData.yourID);
+    }
+
+    private void UpdateGameWindow()
+    {
+        if (inData.gameStarted && !prevGameStarted) // Game started
+        {
+            if (gameWindow != null)
+            {
+                gameWindow.close();
+            }
+            for (PlayerData p : inData.players)
+            {
+                if (p.ID == inData.yourID)
+                {
+                    if (p.role == ERole.driver)
+                        gameWindow = new DriverWindow();
+                    else if (p.role == ERole.fueler)
+                        gameWindow = new FuelerWindow();
+                    else if (p.role == ERole.spectator)
+                        gameWindow = new SpectatorWindow();
+                }
+            }
+        }
+        if (inData.gameStarted && inData.gameData != null && gameWindow != null) // Game runs
+        {
+            gameData = gameWindow.UpdateWindow(inData.gameData);
+        }
+        if (!inData.gameStarted && prevGameStarted) // Game stops
+            gameData = null;
+
+        prevGameStarted = inData.gameStarted;
     }
 
     public LobbyClient(String nick, String ipAddress, int port)
@@ -138,30 +168,6 @@ public class LobbyClient
                     window.printToWindow("Connection failed. Reconnecting...");
                 }
                 window.printToWindow("Connected!");
-            }
-        }
-    }
-
-    private void UpdateGameWindow()
-    {
-        if (inData.gameStarted)
-        {
-            if (gameWindow == null)
-            {
-                for (PlayerData p : inData.players)
-                {
-                    if (p.ID == inData.yourID)
-                    {
-                        if (p.role == ERole.driver)
-                            gameWindow = new DriverWindow();
-                        else if (p.role == ERole.fueler)
-                            gameWindow = new FuelerWindow();
-                    }
-                }
-            }
-            else if (inData.gameData != null)
-            {
-                 gameData = gameWindow.UpdateWindow(inData.gameData);
             }
         }
     }

@@ -15,6 +15,10 @@ public class Ship
     final float batteryCooldownMax = 20.0f;
     final float shipChargeCooldownMax = 20.0f;
 
+    final float maxAfterGameOverTime = 3.0f;
+
+    float afterGameOverTime = 0.0f;
+
     volatile ArrayList<Meteor> meteors = new ArrayList<>();
 
     public double gameTime = 0.0;
@@ -22,7 +26,7 @@ public class Ship
     boolean isHeaterOn = false;
     float shipPos = 0.0f;
     float energy = 1.0f;
-    float currentFuel = 0.2f;
+    float currentFuel = 0.4f;
     float temperatureFurnace = 0.6f;
     float temperatureShip = 21.0f;
     float batteryChargeCooldown = 10.0f;
@@ -33,7 +37,15 @@ public class Ship
     boolean isGameOver = false;
     String gameOverCause;
 
+    public double getGameTime()
+    {
+        return gameTime;
+    }
 
+    public boolean isGameOver()
+    {
+        return afterGameOverTime > maxAfterGameOverTime;
+    }
 
     public ServerToFuelerData getFuelerData()
     {
@@ -70,7 +82,7 @@ public class Ship
         energy = clamp(0.0f,energy, 1.0f);
         temperatureFurnace = clamp( 0.0f,temperatureFurnace, 1.0f);
         temperatureShip = clamp(-273.0f,temperatureShip, 42069.0f);
-        currentFuel = clamp(0.0f,currentFuel,20.0f);
+        currentFuel = clamp(0.0f,currentFuel,1.0f);
         batteriesCharged = clamp(0,batteriesCharged, 10);
     }
 
@@ -103,7 +115,7 @@ public class Ship
                 isHeaterOn = !isHeaterOn;
                 break;
             case addedFuel:
-                currentFuel += 2.0f;
+                currentFuel += 0.1f;
                 break;
             case chargedShip:
                 batteriesCharged--;
@@ -118,28 +130,98 @@ public class Ship
         }
     }
 
+    void checkGameOver()
+    {
+        if (temperatureFurnace <= 0.0f)
+        {
+            isGameOver = true;
+            gameOverCause = "Boiler stalled.";
+        }
+        if (temperatureFurnace >= 1.0f)
+        {
+            isGameOver = true;
+            gameOverCause = "Boiler exploded.";
+        }
+        for (Meteor m : meteors)
+        {
+            if (m.x < shipPos + 5 && m.x > shipPos - 5 && m.y <= 0.1f)
+            {
+                isGameOver = true;
+                gameOverCause = "Ship smashed by meteor.";
+                System.out.println("gameover");
+            }
+
+        }
+    }
+
+    public void notifyAboutDisconnectedDriver()
+    {
+        isGameOver = true;
+        gameOverCause = "Driver YEETed out of the window.";
+    }
+
+    public void notifyAboutDisconnectedFueler()
+    {
+        isGameOver = true;
+        gameOverCause = "Fueler has been SUCCed out of the window.";
+    }
+
     public void update(float dt, DriverToServerData driverData, FuelerToServerData fuelerData) // dt in seconds
     {
-        if (driverData != null)
-            handleDriverInput(dt, driverData);
-        if (fuelerData != null)
-            handleFuelerInput(dt, fuelerData);
-
-        energy -= 0.02f * dt;
-        gameTime += dt;
-
-        batteryChargeCooldown -= dt;
-        shipChargeCooldown -= dt;
-
-        synchronized (meteors)
+        if (!isGameOver)
         {
-            meteors.forEach(meteor -> meteor.move(dt));
-            meteors.removeIf(meteor -> {return meteor.y < 0;});
-            while (meteors.size() < 10)
+            if (driverData != null)
+                handleDriverInput(dt, driverData);
+            if (fuelerData != null)
+                handleFuelerInput(dt, fuelerData);
+
+            energy -= 0.02f * dt;
+            gameTime += dt;
+
+            batteryChargeCooldown -= dt;
+            shipChargeCooldown -= dt;
+
+            if (isHeaterOn)
             {
-                meteors.add(new Meteor(shipPos, 30, true));
+                temperatureFurnace -= dt * 0.02f;
+                temperatureShip += dt;
             }
+
+            if (currentFuel > 0.0f)
+            {
+                temperatureFurnace += currentFuel * currentFuel * 2 * dt;
+            }
+
+            if (temperatureFurnace > 0.0f)
+            {
+                temperatureFurnace -= (temperatureFurnace * temperatureFurnace) * dt * 0.15f + (1 - currentFuel) * 0.2f * dt;
+                if (energy < 1.0f)
+                    energy += (temperatureFurnace * temperatureFurnace) * 0.3f * dt;
+                else
+                    temperatureShip += temperatureFurnace * dt;
+
+                currentFuel *= Math.pow(0.95f, dt);
+            }
+
+            synchronized (meteors)
+            {
+                meteors.forEach(meteor -> meteor.move(dt));
+                meteors.removeIf(meteor -> {return meteor.y < 0;});
+                while (meteors.size() < 10)
+                {
+                    meteors.add(new Meteor(shipPos, 80, true));
+                }
+            }
+            checkGameOver();
+            clampValues();
         }
+        else
+        {
+            afterGameOverTime += dt;
+        }
+
+
+
 
     }
 }

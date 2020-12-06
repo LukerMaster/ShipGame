@@ -40,55 +40,70 @@ public class FuelerWindow implements GameWindow
         switchHeatingBtn.setText(heaterText.toString());
     }
 
+    @Override
+    public void close()
+    {
+        window.dispose();
+    }
+
+    @Override
     public PointToPointData UpdateWindow(PointToPointData inData)
     {
-        ServerToFuelerData data = (ServerToFuelerData)inData;
-        chargeBatteryBtn.setEnabled(data.chargeBatteryCooldown <= 0 && data.batteriesCharged < 10 && data.isEnoughToCharge);
-        chargeShipBtn.setEnabled(data.chargeShipCooldown <= 0 && data.batteriesCharged > 0);
-
-        if (data.chargeBatteryCooldown > 0.0f && data.batteriesCharged < 10)
-            chargeBatteryBtn.setText("Cooldown: " + String.format("%.1f", data.chargeBatteryCooldown) + "s");
-        else if (data.batteriesCharged == 10)
-            chargeBatteryBtn.setText("All charged");
-        else if (!data.isEnoughToCharge)
-            chargeBatteryBtn.setText("No energy");
-        else
-            chargeBatteryBtn.setText("Charge battery");
-
-        if (data.chargeShipCooldown > 0.0f)
-            chargeShipBtn.setText("Cooldown: " + String.format("%.1f", data.chargeShipCooldown) + "s");
-        else if (data.batteriesCharged == 0)
-            chargeShipBtn.setText("No batteries");
-        else
-            chargeShipBtn.setText("Charge ship");
-
-        batteriesChargedLabel.setText("Charged: " + data.batteriesCharged);
-
-
-        temperatureBar.setValue((int) (data.temperaturePercent * 100));
-        energyLabel.setText(data.energyLabel);
-        gameTimeLabel.setText("Time: " + String.format("%.1f", data.gameTimePassed) + "s");
-
-        setTextOnHeater(data.isHeaterOn);
-        temperatureBar.setForeground(new Color((int) (data.temperaturePercent * 255), 0, 0));
-
-        if (data.isGameOver)
+        try
         {
-            gameOverText.setText(data.gameOverReason);
+            ServerToFuelerData data = (ServerToFuelerData)inData;
+            chargeBatteryBtn.setEnabled(data.chargeBatteryCooldown <= 0 && data.batteriesCharged < 10 && data.isEnoughToCharge);
+            chargeShipBtn.setEnabled(data.chargeShipCooldown <= 0 && data.batteriesCharged > 0);
+
+            if (data.chargeBatteryCooldown > 0.0f && data.batteriesCharged < 10)
+                chargeBatteryBtn.setText("Cooldown: " + String.format("%.1f", data.chargeBatteryCooldown) + "s");
+            else if (data.batteriesCharged == 10)
+                chargeBatteryBtn.setText("All charged");
+            else if (!data.isEnoughToCharge)
+                chargeBatteryBtn.setText("No energy");
+            else
+                chargeBatteryBtn.setText("Charge battery");
+
+            if (data.chargeShipCooldown > 0.0f)
+                chargeShipBtn.setText("Cooldown: " + String.format("%.1f", data.chargeShipCooldown) + "s");
+            else if (data.batteriesCharged == 0)
+                chargeShipBtn.setText("No batteries");
+            else
+                chargeShipBtn.setText("Charge ship");
+
+            batteriesChargedLabel.setText("Charged: " + data.batteriesCharged);
+
+
+            temperatureBar.setValue((int) (data.temperaturePercent * 100));
+            energyLabel.setText(data.energyLabel);
+            gameTimeLabel.setText("Time: " + String.format("%.1f", data.gameTimePassed) + "s");
+
+            setTextOnHeater(data.isHeaterOn);
+            temperatureBar.setForeground(new Color(Math.min(255, Math.max(0, (int)(data.temperaturePercent * 255))), 0, 0));
+
+            if (data.isGameOver)
+            {
+                gameOverText.setText(data.gameOverReason);
+            }
+            else
+            {
+                gameOverText.setText("");
+            }
+
+            // Output
+            FuelerToServerData outData = new FuelerToServerData();
+            if (!pendingActions.isEmpty())
+                outData.action = pendingActions.poll();
+            else
+                outData.action = FuelerAction.noAction;
+
+            return outData;
         }
-        else
+        catch (ClassCastException e)
         {
-            gameOverText.setText("");
+            System.out.println("Wrong data sent. Ignoring packet.");
         }
-
-        // Output
-        FuelerToServerData outData = new FuelerToServerData();
-        if (!pendingActions.isEmpty())
-            outData.action = pendingActions.poll();
-        else
-            outData.action = FuelerAction.noAction;
-
-        return outData;
+        return null;
     }
 
 

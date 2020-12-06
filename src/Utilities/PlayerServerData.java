@@ -9,6 +9,8 @@ public class PlayerServerData
     public Socket socket;
     public ObjectOutputStream outputStream;
     public ObjectInputStream inputStream;
+    public boolean toDelete = false;
+    public Thread connectionThread;
 
     public PlayerData lobbyData = new PlayerData();
 }

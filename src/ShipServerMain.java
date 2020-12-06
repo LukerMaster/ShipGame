@@ -1,31 +1,32 @@
 import Utilities.*;
 import Utilities.SocketData.*;
-import com.google.gson.Gson;
 import com.google.gson.JsonSyntaxException;
+import com.sun.jmx.remote.internal.ArrayQueue;
 
 import java.io.*;
 import java.net.ServerSocket;
 import java.net.Socket;
 import java.net.SocketTimeoutException;
+import java.util.ArrayList;
+import java.util.ConcurrentModificationException;
 import java.util.concurrent.CopyOnWriteArrayList;
+import java.util.concurrent.LinkedBlockingQueue;
+
 
 public class ShipServerMain
 {
     ServerSocket soc;
-    volatile CopyOnWriteArrayList<PlayerServerData> players = new CopyOnWriteArrayList<>();
+    ArrayList<PlayerServerData> players = new ArrayList<>();
     int nextID = 1; // ID's need to be unique for each player.
-
-    volatile DriverToServerData driverDataIn = new DriverToServerData();
-    volatile FuelerToServerData fuelerDataIn = new FuelerToServerData();
 
     volatile boolean gameStarted = false;
 
     Thread connectionListenerThread;
     Thread mainThread;
 
-    FuelerToServerData fuelerData;
+    LinkedBlockingQueue<FuelerToServerData> fuelerData = new LinkedBlockingQueue<>(); // Fueler has "toggle-mechanics" so we keep his last actions as array
     DriverToServerData driverData;
-    Ship ship = new Ship();
+    Ship ship;
     ServerWindow window;
 
     void updateLobbyInfo()
@@ -60,98 +61,116 @@ public class ShipServerMain
 
     void setRoleOfPlayer(ERole role)
     {
-        try
+        synchronized (players)
         {
-            int id = Integer.parseInt(window.idTextBox.getText());
-            for (PlayerServerData p : players)
+            try
             {
-                if (p.lobbyData.ID == id)
-                    p.lobbyData.role = role;
-                else if (p.lobbyData.role == role && role != ERole.spectator) // If other player has this role already, reset it to spectator.
-                    p.lobbyData.role = ERole.spectator;
-            }
+                int id = Integer.parseInt(window.idTextBox.getText());
+                for (PlayerServerData p : players)
+                {
+                    if (p.lobbyData.ID == id)
+                        p.lobbyData.role = role;
+                    else if (p.lobbyData.role == role && role != ERole.spectator) // If other player has this role already, reset it to spectator.
+                        p.lobbyData.role = ERole.spectator;
+                }
 
-        }
-        catch (Exception e)
-        {
-            window.printToConsoleAndWindow("Wrong ID!");
+            }
+            catch (Exception e)
+            {
+                window.printToConsoleAndWindow("Wrong ID!");
+            }
         }
     }
 
     void swapRolesOfFuelerAndDriver()
     {
-        for (PlayerServerData p : players)
+        synchronized (players)
         {
-            if (p.lobbyData.role == ERole.driver)
-                p.lobbyData.role = ERole.fueler;
-            else if (p.lobbyData.role == ERole.fueler)
-                p.lobbyData.role = ERole.driver;
+            for (PlayerServerData p : players)
+            {
+                if (p.lobbyData.role == ERole.driver)
+                    p.lobbyData.role = ERole.fueler;
+                else if (p.lobbyData.role == ERole.fueler)
+                    p.lobbyData.role = ERole.driver;
+            }
         }
     }
 
-    void exchangeDataWithClients()
+    void exchangeDataWith(PlayerServerData targetPlayer)
     {
-        for (PlayerServerData targetPlayer: players) // Handling player connections.
+        while (!targetPlayer.toDelete && window.isWindowOpened())
         {
-            new Thread(() ->
+            ServerToLobbyData outData = new ServerToLobbyData();
+            try
             {
-                ServerToLobbyData outData = new ServerToLobbyData();
-                try
+                for (PlayerServerData p : players)
                 {
-                    synchronized (targetPlayer) // Sending data
+                    outData.players.add(p.lobbyData);
+                }
+                outData.yourID = targetPlayer.lobbyData.ID;
+                outData.gameStarted = gameStarted;
+
+                if (ship != null && gameStarted)
+                {
+                    if (targetPlayer.lobbyData.role == ERole.driver)
+                        outData.gameData = ship.getDriverData();
+                    if (targetPlayer.lobbyData.role == ERole.fueler)
+                        outData.gameData = ship.getFuelerData();
+                    if (targetPlayer.lobbyData.role == ERole.spectator)
                     {
-                        for (PlayerServerData player : players)
-                        {
-                            outData.players.add(player.lobbyData);
-                        }
-                        outData.yourID = targetPlayer.lobbyData.ID;
-                        outData.gameStarted = gameStarted;
-                        if (targetPlayer.lobbyData.role == ERole.driver)
-                            outData.gameData = ship.getDriverData();
-                        if (targetPlayer.lobbyData.role == ERole.fueler)
-                            outData.gameData = ship.getFuelerData();
-
-                        targetPlayer.outputStream.writeObject(outData);
-                        targetPlayer.outputStream.flush();
-
-                        // Receiving data
-                        LobbyToServerData inData = (LobbyToServerData)targetPlayer.inputStream.readObject();
-                        targetPlayer.lobbyData.nickname = inData.nickname;
-                        targetPlayer.lobbyData.isReady = inData.isReady;
-
-                        if (inData.gameData != null && targetPlayer.lobbyData.role == ERole.driver)
-                            driverData = (DriverToServerData)inData.gameData;
-                        if (inData.gameData != null && targetPlayer.lobbyData.role == ERole.fueler)
-                            fuelerData = (FuelerToServerData)inData.gameData;
-
-
-                        targetPlayer.outputStream.reset();
+                        ServerToSpectatorData spectatorData = new ServerToSpectatorData();
+                        spectatorData.driverData = ship.getDriverData();
+                        spectatorData.fuelerData = ship.getFuelerData();
+                        outData.gameData = spectatorData;
                     }
-                } catch (SocketTimeoutException e)
-                {
-                    outData.timeout = true;
-                    try
-                    {
-                        targetPlayer.outputStream.writeObject(outData);
-                    } catch (IOException ie)
-                    {
-                        ie.printStackTrace();
-                    }
-                    players.remove(targetPlayer);
-                    window.printToConsoleAndWindow("Player timed out. " + players.size() + " players left.");
                 }
-                catch (IllegalStateException | JsonSyntaxException se)
+                synchronized (players)
                 {
-                    System.out.println("Player connection error. Skipping packet.");
+                    targetPlayer.outputStream.writeObject(outData);
+                    targetPlayer.outputStream.flush();
                 }
-                catch (Exception e)
+                // Receiving data
+                LobbyToServerData inData = (LobbyToServerData) targetPlayer.inputStream.readObject();
+                targetPlayer.lobbyData.nickname = inData.nickname;
+                targetPlayer.lobbyData.isReady = inData.isReady;
+
+                if (inData.gameData != null && targetPlayer.lobbyData.role == ERole.driver)
+                    driverData = (DriverToServerData) inData.gameData;
+                if (inData.gameData != null && targetPlayer.lobbyData.role == ERole.fueler)
                 {
-                    e.printStackTrace();
-                    players.remove(targetPlayer);
-                    window.printToConsoleAndWindow("Player encountered an error while connecting. " + players.size() + " players left. | " + e.toString());
+                    FuelerToServerData checked = (FuelerToServerData) inData.gameData;
+                    if (checked.action != FuelerAction.noAction)
+                        fuelerData.add(checked);
                 }
-            }).start();
+
+                targetPlayer.outputStream.reset();
+
+            } catch (SocketTimeoutException e)
+            {
+                System.out.println("Timed out.");
+                targetPlayer.toDelete = true;
+            } catch (IllegalStateException | JsonSyntaxException se)
+            {
+                System.out.println("Player connection error. Skipping packet.");
+            } catch (ConcurrentModificationException e)
+            {
+                System.out.println("Concurrent modification.");
+            } catch (Exception e)
+            {
+                e.printStackTrace();
+                targetPlayer.toDelete = true;
+            }
         }
+    }
+
+    public void deleteDisconnectedPlayers()
+    {
+        synchronized (players)
+        {
+            if (players.removeIf(PlayerServerData -> PlayerServerData.toDelete))
+                window.printToConsoleAndWindow("Player disconnected. " + players.size() + " players left.");
+        }
+
     }
 
     public static void main(String[] args)
@@ -171,7 +190,7 @@ public class ShipServerMain
 
         connectionListenerThread = new Thread(() ->
         {
-            while (!gameStarted && window.isWindowOpened())
+            while (window.isWindowOpened())
             {
                 Socket current = ConnectionEstablisher.ListenForConnections(port);
                 if (current != null)
@@ -182,7 +201,6 @@ public class ShipServerMain
 
                         newPlayer.lobbyData.ID = nextID;
                         nextID++;
-
                         newPlayer.socket = current;
                         newPlayer.socket.setSoTimeout(2000);
                         newPlayer.outputStream = new ObjectOutputStream(current.getOutputStream());
@@ -190,6 +208,8 @@ public class ShipServerMain
                         newPlayer.lobbyData.nickname = "Connecting...";
                         newPlayer.lobbyData.role = ERole.spectator;
                         newPlayer.lobbyData.isReady = false;
+                        newPlayer.connectionThread = new Thread(() -> exchangeDataWith(newPlayer));
+                        newPlayer.connectionThread.start();
                         players.add(newPlayer);
                         window.printToConsoleAndWindow("Connected " + players.size() + " players.");
                     } catch (Exception e)
@@ -213,20 +233,33 @@ public class ShipServerMain
                 {
                     e.printStackTrace();
                 }
-
-                exchangeDataWithClients();
                 updateLobbyInfo();
+                deleteDisconnectedPlayers();
 
                 if (gameStarted)
                 {
-                    ship.update(dt, driverData, fuelerData);
-                    window.printToWindow("Game started: " + String.format("%.2f", ship.gameTime) + "s.");
+                    if (ship == null)
+                        ship = new Ship();
+                    else
+                    {
+                        if (!isDriverConnected())
+                            ship.notifyAboutDisconnectedDriver();
+                        if (!isFuelerConnected())
+                            ship.notifyAboutDisconnectedFueler();
+
+                        ship.update(dt, driverData, fuelerData.poll());
+                        window.printToWindow("Game started: " + String.format("%.2f", ship.gameTime) + "s.");
+
+                        if (ship.isGameOver())
+                        {
+                            gameStarted = false;
+                            ship = null;
+                        }
+                    }
                 }
-                
             }
             System.out.println("Lobby thread shut off.");
         });
-
 
         if (window.isWindowOpened())
         {
@@ -247,5 +280,25 @@ public class ShipServerMain
         {
             window.printToConsoleAndWindow("Shutting down the server.");
         }
+    }
+
+    private boolean isFuelerConnected()
+    {
+        for (PlayerServerData p : players)
+        {
+            if (p.lobbyData.role == ERole.fueler)
+                return true;
+        }
+        return false;
+    }
+
+    private boolean isDriverConnected()
+    {
+        for (PlayerServerData p : players)
+        {
+            if (p.lobbyData.role == ERole.driver)
+                return true;
+        }
+        return false;
     }
 }

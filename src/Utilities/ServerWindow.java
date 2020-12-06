@@ -26,6 +26,7 @@ public class ServerWindow extends LobbyWindow
         window.setTitle("Absolutely Worst Space Journey - Server");
         startGameBtn.setBounds(480, 240, 100, 30);
         startGameBtn.setText("Start Game!");
+        startGameBtn.setMargin(new Insets(0, 0, 0, 0));
         startGameBtn.setEnabled(false);
 
         swapRolesBtn.setBounds(480, 20, 100, 30);
