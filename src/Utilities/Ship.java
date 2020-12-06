@@ -183,20 +183,20 @@ public class Ship
 
             if (isHeaterOn)
             {
-                temperatureFurnace -= dt * 0.02f;
+                temperatureFurnace -= dt * 0.08f;
                 temperatureShip += dt;
             }
 
             if (currentFuel > 0.0f)
             {
-                temperatureFurnace += currentFuel * currentFuel * 2 * dt;
+                temperatureFurnace += currentFuel * currentFuel * 1.25 * dt;
             }
 
             if (temperatureFurnace > 0.0f)
             {
-                temperatureFurnace -= (temperatureFurnace * temperatureFurnace) * dt * 0.15f + (1 - currentFuel) * 0.2f * dt;
+                temperatureFurnace -= (temperatureFurnace * temperatureFurnace) * dt * 0.10f + (1 - currentFuel) * 0.12f * dt;
                 if (energy < 1.0f)
-                    energy += (temperatureFurnace * temperatureFurnace) * 0.3f * dt;
+                    energy += (temperatureFurnace * temperatureFurnace) * 0.2f * dt;
                 else
                     temperatureShip += temperatureFurnace * dt;
 
@@ -219,9 +219,5 @@ public class Ship
         {
             afterGameOverTime += dt;
         }
-
-
-
-
     }
 }

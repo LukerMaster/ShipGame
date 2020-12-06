@@ -16,7 +16,7 @@ import java.util.concurrent.LinkedBlockingQueue;
 public class ShipServerMain
 {
     ServerSocket soc;
-    ArrayList<PlayerServerData> players = new ArrayList<>();
+    final ArrayList<PlayerServerData> players = new ArrayList<>();
     int nextID = 1; // ID's need to be unique for each player.
 
     volatile boolean gameStarted = false;
