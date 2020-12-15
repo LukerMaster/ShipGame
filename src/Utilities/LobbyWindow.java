@@ -73,7 +73,7 @@ public class LobbyWindow
 
     public LobbyWindow()
     {
-        window.setSize(600, 300);
+        window.setSize(600, 330);
         window.setResizable(false);
         window.setLayout(null);
         window.setDefaultCloseOperation(WindowConstants.DISPOSE_ON_CLOSE);

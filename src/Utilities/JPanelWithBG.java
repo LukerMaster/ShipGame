@@ -14,7 +14,7 @@ public class JPanelWithBG extends JPanel
         super();
         try
         {
-            bgImage = ImageIO.read(new File(filepath));
+            bgImage = ImageIO.read(getClass().getResource(filepath));
         }
         catch (Exception e)
         {

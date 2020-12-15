@@ -113,7 +113,7 @@ public class FuelerWindow implements GameWindow
         window.setSize(600, 630);
         window.setDefaultCloseOperation(WindowConstants.DISPOSE_ON_CLOSE);
 
-        panel = new JPanelWithBG("assets/fuel.png");
+        panel = new JPanelWithBG("/fuel.png");
         panel.setLayout(null);
         panel.setBounds(0, 0, 600, 600);
 

@@ -74,7 +74,7 @@ public class DriverWindow implements GameWindow
         window = new JFrame("Ship Driver");
         window.setSize(600, 630);
         window.setDefaultCloseOperation(WindowConstants.DISPOSE_ON_CLOSE);
-        panel = new JPanelWithBG("assets/ship.png");
+        panel = new JPanelWithBG("/ship.png");
         panel.setLayout(null);
         panel.setBounds(0, 0, 600, 600);
 
@@ -129,7 +129,7 @@ public class DriverWindow implements GameWindow
         meteorSprites = new JPanelWithBG[10];
         for (int i = 0; i < meteorSprites.length; i++)
         {
-            meteorSprites[i] = new JPanelWithBG("assets/meteor.png");
+            meteorSprites[i] = new JPanelWithBG("/meteor.png");
             panel.add(meteorSprites[i]);
         }
     }
