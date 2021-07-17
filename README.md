@@ -1,4 +1,4 @@
-# ShipGame
+# AWSJ - Absolutely Worst Space Journey
 Project for learning Java networking and multithreaded programming
 
 ### What it is?
